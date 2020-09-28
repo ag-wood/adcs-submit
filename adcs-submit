@@ -1,0 +1,281 @@
+#!/bin/python3
+"""
+A Python helper for integration of certmonger with Active Directory Certificate Services Web Service.
+
+The helper uses the following notable modules:
+
+- certsrv : https://github.com/magnuswatn/certsrv
+- pyOpenSSL : https://github.com/pyca/pyopenssl
+- requests (certsrv dependency): https://github.com/psf/requests
+- requests_ntlm (certsrv dependency) https://github.com/requests/requests-ntlm
+
+"""
+import argparse
+from base64 import b64decode, b64encode
+from certsrv import Certsrv
+from OpenSSL import crypto
+from OpenSSL.crypto import _lib, _ffi, X509
+from datetime import datetime
+import json
+import logging
+import os
+import sys
+from types import SimpleNamespace
+
+VERSION = "1.0"
+
+logger = logging.getLogger("adcs-submit")
+logger.setLevel(logging.INFO)
+log_file = "/var/log/adcs-submit.log"
+
+config_dir = "/etc/certmonger"
+config_file = "{}/.adcs_config".format(config_dir)
+config = None
+
+
+def get_args():
+    """ Parse any supplied arguments. """
+    parser = argparse.ArgumentParser(
+        description="Certmonger helper for Microsoft Active Directory Certificate Services."
+    )
+    parser.add_argument(
+        "--config",
+        help="Update stored configuration",
+        action="store_true",
+        default=False,
+        required=False,
+    )
+    return parser.parse_args()
+
+
+def get_config():
+    """ Read configuration file. """
+    try:
+        with open(config_file) as f:
+            config = json.load(f, object_hook=lambda d: SimpleNamespace(**d))
+        return config
+    except FileNotFoundError:
+        script_name = os.path.realpath(__file__)
+        print(
+            "Error: Configuration is missing - please run: {} --config".format(
+                script_name
+            )
+        )
+        logger.info(
+            "Error: Configuration is missing - please run: {} --config".format(
+                script_name
+            )
+        )
+        sys.exit(3)
+    except:
+        print(
+            "Error: Unknown error reading configuration file ({})".format(config_file)
+        )
+        logger.info(
+            "Error: Unknown error reading configuration file ({})".format(config_file)
+        )
+        sys.exit(3)
+
+
+def write_config():
+    """ Create or update configuration file - contains credentials, default template and ADCS servers. """
+    user = pwd = ca = tmp = ""
+
+    try:
+        with open(config_file) as f:
+            config = json.load(f, object_hook=lambda d: SimpleNamespace(**d))
+        if config.username:
+            user = config.username
+            pwd = b64decode(config.password).decode()
+            ca = config.certificate_authority
+            tmp = config.default_template
+    except:
+        # An error is expected on first run.
+        pass
+
+    username = input("Username [{}]:\t".format(user))
+    if not username:
+        username = user
+    password = input("Password [{}]:\t".format("*" * len(pwd)))
+    if not password:
+        password = pwd
+    certificate_authority = input("Issuing CA: [{}]\t".format(ca))
+    if not certificate_authority:
+        certificate_authority = ca
+    default_template = input("Default Template: [{}]\t".format(tmp))
+    if not default_template:
+        default_template = tmp
+    json_cfg = {
+        "username": username,
+        "password": b64encode(password.encode()).decode(),
+        "certificate_authority": certificate_authority,
+        "default_template": default_template,
+    }
+    try:
+        with open(config_file, "w") as f:
+            f.write(json.dumps(json_cfg, indent=2))
+        os.chmod(config_file, 0o600)
+    except:
+        logger.exception("Error opening configuration file: {}".format(config_file))
+
+
+def get_pkcs7_certificates(pkcs7_certs):
+    """
+    Unpack a PKCS7 bundle into individual certificates.
+     reference: https://github.com/pyca/pyopenssl/pull/367
+    """
+    certs = _ffi.NULL
+    if pkcs7_certs.type_is_signed():
+        certs = pkcs7_certs._pkcs7.d.sign.cert
+    elif pkcs7_certs.type_is_signedAndEnveloped():
+        certs = pkcs7_certs._pkcs7.d.signed_and_enveloped.cert
+    pycerts = []
+    for i in range(_lib.sk_X509_num(certs)):
+        pycert = X509.__new__(X509)
+        # pycert._x509 = _lib.sk_X509_value(certs, i)
+        # According to comment from @ Jari Turkia
+        # to prevent segfaults use '_lib.X509_dup('
+        pycert._x509 = _lib.X509_dup(_lib.sk_X509_value(certs, i))
+        pycerts.append(pycert)
+    if not pycerts:
+        return None
+    return tuple(pycerts)
+
+
+def submit():
+    """ Submit the supplied CSR to the associated ADCS CA. """
+    log_env()
+
+    # Attributes passed as Environment variables
+    template = os.environ.get("CERTMONGER_CA_PROFILE")
+    pem_req = os.environ.get("CERTMONGER_CSR")
+
+    # Get the cert from the ADCS server
+    ca_server = Certsrv(
+        config.certificate_authority,
+        config.username,
+        b64decode(config.password).decode(),
+        auth_method="ntlm",
+    )
+    pem_cert = ca_server.get_cert(pem_req, template)
+
+    print(pem_cert.decode())
+    sys.exit(0)
+
+
+def identify():
+    """ Output name and version info. """
+    print("Active Directory Certificate Services Helper (v{})".format(VERSION))
+    log_env()
+    sys.exit(0)
+
+
+def list_requirements():
+    """ List the environment variables that are expected for SUBMIT and POLL operations. """
+    print("CERTMONGER_LOCAL_CA_DIR\nCERTMONGER_CA_PROFILE\nCERTMONGER_CSR")
+    log_env()
+    sys.exit(0)
+
+
+def templates():
+    """ Retrieve the templates available to the authenticated user. """
+    log_env()
+
+    ca_server = Certsrv(
+        config.certificate_authority,
+        config.username,
+        b64decode(config.password).decode(),
+        auth_method="ntlm",
+    )
+    try:
+        print("{}".format("\n".join(ca_server.get_templates())))
+        sys.exit(0)
+    except AttributeError:
+        # Waiting for get_templates to be implemented in certsrv module
+        # as per PR at https://github.com/magnuswatn/certsrv/pull/18
+        logger.info(
+            "Get templates is not yet implemented in the current version of the certsrv module."
+        )
+
+
+def fetch_roots():
+    log_env()
+
+    ca_server = Certsrv(
+        config.certificate_authority,
+        config.username,
+        b64decode(config.password).decode(),
+        auth_method="ntlm",
+    )
+    pkcs7_bundle = ca_server.get_chain("b64")
+    pkcs7_data = crypto.load_pkcs7_data(crypto.FILETYPE_PEM, pkcs7_bundle)
+    pkcs7_certs = get_pkcs7_certificates(pkcs7_data)
+
+    for i in reversed(range(len(pkcs7_certs))):
+        pemcert = crypto.dump_certificate(crypto.FILETYPE_PEM, pkcs7_certs[i])
+        x509cert = crypto.load_certificate(crypto.FILETYPE_PEM, pemcert)
+        print(x509cert.get_subject().CN.lower())
+        print(pemcert.decode())
+
+
+def log_env():
+    certmonger_env = [key for key in os.environ.keys() if key.startswith("CERTMONGER_")]
+    for key in certmonger_env:
+        logger.info("{} = {}".format(key, os.environ.get(key)))
+
+
+def main():
+    global config
+    global logger
+
+    args = get_args()
+    if args.config:
+        write_config()
+        sys.exit(0)
+
+    # create the logging file handler
+    fh = logging.FileHandler(log_file)
+
+    formatter = logging.Formatter(
+        "{asctime} {name} ({levelname}): {message}",
+        style="{",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    fh.setFormatter(formatter)
+
+    # add handler to logger object
+    logger.addHandler(fh)
+
+    config = get_config()
+    operation = os.environ.get("CERTMONGER_OPERATION")
+
+    # Perform the requested function.
+    if operation == "SUBMIT" or operation == "" or operation == None:
+        submit()
+    elif operation == "IDENTIFY":
+        identify()
+    elif operation == "GET-DEFAULT-TEMPLATE":
+        try:
+            if config.default_template != "":
+                print(config.default_template)
+                sys.exit(0)
+            else:
+                logger.info("No default template specified, returned NOT IMPLEMENTED.")
+        except:
+            logger.exception("Error getting default template.")
+    elif (
+        operation == "GET-NEW-REQUEST-REQUIREMENTS"
+        or operation == "GET-RENEW-REQUEST-REQUIREMENTS"
+    ):
+        list_requirements()
+    elif operation == "GET-SUPPORTED-TEMPLATES":
+        templates()
+    elif operation == "FETCH-ROOTS":
+        fetch_roots()
+
+    # Drop out with NOT IMPLEMENTED exit code.
+    sys.exit(6)
+
+
+if __name__ == "__main__":
+    main()
