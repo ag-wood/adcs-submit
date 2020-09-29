@@ -4,7 +4,7 @@ A helper script for certmonger integration with the Active Directory Certificate
 
 ## Disclaimer
 
-This is a work-in-progress example of how I created a certmonger helper script use against an unsupported Certificate Service.  At the time
+This is a work-in-progress example of how I created a certmonger helper script for use against a third-party Certificate Service.  At the time
 of writing, I haven't used the helper in a production environment or done extensive testing, hopefully, I'll be able to update this at a 
 later time with glowing reports of stable operations.
 
