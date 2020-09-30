@@ -50,7 +50,7 @@ Default Template []:    webserver
 
 3. Register the helper with certmonger
 
-The rest is described in the [certmonger documentation](https://docs.pagure.org/pagure/usage/index.html), but for completeness, registration is achieved by running:
+The rest is described in the [certmonger documentation](https://pagure.io/certmonger/blob/master/f/doc) or in [Red Hat Documentation](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/system-level_authentication_guide/certmongerx), but for completeness, registration is achieved by running:
 
 ```
 # getcert add-ca -c ADCS -e /usr/libexec/certmonger/adcs-submit
