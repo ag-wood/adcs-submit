@@ -46,7 +46,7 @@ Default Template []:    webserver
 
 > **NOTE:**
 >
-> The above configuration creates /etc/certmonger/.adcs_config - a 'hidden' file with obfiscated credentials that is only accessible by root.   Do NOT use a domain administrator account or any privileged account as there is no way to properly secure a password that needs to run unattended.  Use an account that has been configured to allow enrolment for the specific templates required.
+> The above configuration creates /etc/certmonger/.adcs_config - a 'hidden' file with obfuscated credentials that is only accessible by root.   Do NOT use a domain administrator account or any privileged account as there is no way to properly secure a password that needs to run unattended.  Use an account that has been configured to allow enrolment for the specific templates required.
 
 3. Register the helper with certmonger
 
