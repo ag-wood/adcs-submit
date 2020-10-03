@@ -4,7 +4,7 @@ A helper script for certmonger integration with the Active Directory Certificate
 
 ## Disclaimer
 
-This is a work-in-progress example of how I created a certmonger helper script use against an unsupported Certificate Service.  At the time
+This is a work-in-progress example of how I created a certmonger helper script for use against a third-party Certificate Service.  At the time
 of writing, I haven't used the helper in a production environment or done extensive testing, hopefully, I'll be able to update this at a 
 later time with glowing reports of stable operations.
 
@@ -45,11 +45,11 @@ Default Template []:    webserver
 
 > **NOTE:**
 >
-> The above configuration creates /etc/certmonger/.adcs_config - a 'hidden' file with obfiscated credentials that is only accessible by root.   Do NOT use a domain administrator account or any privileged account as there is no way to properly secure a password that needs to run unattended.  Use an account that has been configured to allow enrolment for the specific templates required.
+> The above configuration creates /etc/certmonger/.adcs_config - a 'hidden' file with obfuscated credentials that is only accessible by root.   Do NOT use a domain administrator account or any privileged account as there is no way to properly secure a password that needs to run unattended.  Use an account that has been configured to allow enrolment for the specific templates required.
 
 3. Register the helper with certmonger
 
-The rest is described in the [certmonger documentation](https://docs.pagure.org/pagure/usage/index.html), but for completeness, registration is achieved by running:
+The rest is described in the [certmonger documentation](https://pagure.io/certmonger/blob/master/f/doc) or in [Red Hat Documentation](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/7/html/system-level_authentication_guide/certmongerx), but for completeness, registration is achieved by running:
 
 ```
 # getcert add-ca -c ADCS -e /usr/libexec/certmonger/adcs-submit
