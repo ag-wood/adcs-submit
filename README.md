@@ -20,8 +20,6 @@ adcs-submit requires the following components for correct function:
 
 ## Known limitations
 
-- The version 1.0 script only works for certificates that are issued without Administrator intervention.  I hope to be able to support
-the POLL operation soon.
 - Requires at least version 3.1 of the cryptography library for the ability to unpack PKCS7 bundle of CA certs.
 
 ## Installation

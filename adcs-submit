@@ -13,19 +13,24 @@ The helper uses the following notable modules:
 import argparse
 from base64 import b64decode, b64encode
 from certsrv import Certsrv
+from certsrv import (
+    CertificatePendingException,
+    RequestDeniedException,
+    CouldNotRetrieveCertificateException,
+)
 from datetime import datetime
 import json
 import logging
 import os
-import sys
 from types import SimpleNamespace
+import sys
 
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives.serialization import pkcs7
 
 
-VERSION = "1.01"
+VERSION = "1.02"
 
 logger = logging.getLogger("adcs-submit")
 logger.setLevel(logging.INFO)
@@ -49,6 +54,20 @@ def get_args():
         required=False,
     )
     return parser.parse_args()
+
+
+def connect_ca():
+    """ Connect to the specified Issuing CA """
+    try:
+        ca_server = Certsrv(
+            config.certificate_authority,
+            config.username,
+            b64decode(config.password).decode(),
+            auth_method="ntlm",
+        )
+        return ca_server
+    except:
+        sys.exit(3)
 
 
 def get_config():
@@ -131,22 +150,60 @@ def submit():
     pem_req = os.environ.get("CERTMONGER_CSR")
 
     # Get the cert from the ADCS server
-    ca_server = Certsrv(
-        config.certificate_authority,
-        config.username,
-        b64decode(config.password).decode(),
-        auth_method="ntlm",
-    )
-    pem_cert = ca_server.get_cert(pem_req, template)
+    ca_server = connect_ca()
+    try:
+        pem_cert = ca_server.get_cert(pem_req, template)
+        print(pem_cert.decode())
+        sys.exit(0)
+    except CertificatePendingException as err:
+        print(err.req_id)
+        sys.exit(1)
+    except RequestDeniedException as err:
+        print(err)
+        sys.exit(2)
+    except CouldNotRetrieveCertificateException as err:
+        print(err)
+        sys.exit(2)
+    except Exception as err:
+        print(err)
 
-    print(pem_cert.decode())
-    sys.exit(0)
+    sys.exit(4)
+
+
+def poll():
+    """ Poll the CA for an update on a pending request i.e. a request awaiting Admin Approval. """
+    log_env()
+
+    req_id = os.environ.get("CERTMONGER_CA_COOKIE")
+    ca_server = connect_ca()
+    try:
+        pem_cert = ca_server.get_existing_cert(req_id)
+        print(pem_cert.decode())
+        sys.exit(0)
+    except CertificatePendingException as err:
+        print(req_id)
+        sys.exit(1)
+    except RequestDeniedException as err:
+        print(err)
+        sys.exit(2)
+    except CouldNotRetrieveCertificateException as err:
+        if str(err).find("Taken Under Submission") > -1:
+            print(req_id)
+            sys.exit(1)
+        else:
+            print(err)
+            sys.exit(2)
+    except Exception as err:
+        print(err)
+
+    sys.exit(4)
 
 
 def identify():
     """ Output name and version info. """
     print("Active Directory Certificate Services Helper (v{})".format(VERSION))
     log_env()
+
     sys.exit(0)
 
 
@@ -154,6 +211,7 @@ def list_requirements():
     """ List the environment variables that are expected for SUBMIT and POLL operations. """
     print("CERTMONGER_LOCAL_CA_DIR\nCERTMONGER_CA_PROFILE\nCERTMONGER_CSR")
     log_env()
+
     sys.exit(0)
 
 
@@ -161,12 +219,7 @@ def templates():
     """ Retrieve the templates available to the authenticated user. """
     log_env()
 
-    ca_server = Certsrv(
-        config.certificate_authority,
-        config.username,
-        b64decode(config.password).decode(),
-        auth_method="ntlm",
-    )
+    ca_server = connect_ca()
     try:
         print("{}".format("\n".join(ca_server.get_templates())))
         sys.exit(0)
@@ -181,12 +234,7 @@ def templates():
 def fetch_roots():
     log_env()
 
-    ca_server = Certsrv(
-        config.certificate_authority,
-        config.username,
-        b64decode(config.password).decode(),
-        auth_method="ntlm",
-    )
+    ca_server = connect_ca()
     pkcs7_bundle = ca_server.get_chain("b64")
     pkcs7_certs = pkcs7.load_pem_pkcs7_certificates(pkcs7_bundle)
 
@@ -196,6 +244,8 @@ def fetch_roots():
         pemcert = pkcs7_certs[i].public_bytes(Encoding.PEM)
         print(CN.lower())
         print(pemcert.decode())
+        if i == len(pkcs7_certs) - 1:
+            print("")
 
 
 def log_env():
@@ -232,6 +282,8 @@ def main():
     # Perform the requested function.
     if operation == "SUBMIT" or operation == "" or operation == None:
         submit()
+    elif operation == "POLL":
+        poll()
     elif operation == "IDENTIFY":
         identify()
     elif operation == "GET-DEFAULT-TEMPLATE":
