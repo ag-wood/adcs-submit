@@ -14,7 +14,7 @@ adcs-submit requires the following components for correct function:
 
 - Python 3: the effort to make it compatible with Version 2.x didn't seem worth it.
 - [certsrv](https://github.com/magnuswatn/certsrv): A Python client for the Microsoft AD Certificate Services web page.
-- [pyOpenSSL](https://github.com/pyca/pyopenssl): A Python wrapper around the OpenSSL library.
+- [cryptography](https://github.com/pyca/cryptography): A package designed to expose cryptographic primitives and recipes to Python developers.
 - [requests](https://github.com/psf/requests): A simple, yet elegant HTTP library.
 - [requests_ntlm](https://github.com/requests/requests-ntlm): NTLM authentication support for Requests.
 
@@ -22,6 +22,7 @@ adcs-submit requires the following components for correct function:
 
 - The version 1.0 script only works for certificates that are issued without Administrator intervention.  I hope to be able to support
 the POLL operation soon.
+- Requires at least version 3.1 of the cryptography library for the ability to unpack PKCS7 bundle of CA certs.
 
 ## Installation
 

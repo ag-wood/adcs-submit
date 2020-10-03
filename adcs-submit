@@ -5,7 +5,7 @@ A Python helper for integration of certmonger with Active Directory Certificate 
 The helper uses the following notable modules:
 
 - certsrv : https://github.com/magnuswatn/certsrv
-- pyOpenSSL : https://github.com/pyca/pyopenssl
+- cryptography: https://github.com/pyca/cryptography
 - requests (certsrv dependency): https://github.com/psf/requests
 - requests_ntlm (certsrv dependency) https://github.com/requests/requests-ntlm
 
@@ -13,8 +13,6 @@ The helper uses the following notable modules:
 import argparse
 from base64 import b64decode, b64encode
 from certsrv import Certsrv
-from OpenSSL import crypto
-from OpenSSL.crypto import _lib, _ffi, X509
 from datetime import datetime
 import json
 import logging
@@ -22,7 +20,12 @@ import os
 import sys
 from types import SimpleNamespace
 
-VERSION = "1.0"
+from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.x509.oid import NameOID
+from cryptography.hazmat.primitives.serialization import pkcs7
+
+
+VERSION = "1.01"
 
 logger = logging.getLogger("adcs-submit")
 logger.setLevel(logging.INFO)
@@ -119,29 +122,6 @@ def write_config():
         logger.exception("Error opening configuration file: {}".format(config_file))
 
 
-def get_pkcs7_certificates(pkcs7_certs):
-    """
-    Unpack a PKCS7 bundle into individual certificates.
-     reference: https://github.com/pyca/pyopenssl/pull/367
-    """
-    certs = _ffi.NULL
-    if pkcs7_certs.type_is_signed():
-        certs = pkcs7_certs._pkcs7.d.sign.cert
-    elif pkcs7_certs.type_is_signedAndEnveloped():
-        certs = pkcs7_certs._pkcs7.d.signed_and_enveloped.cert
-    pycerts = []
-    for i in range(_lib.sk_X509_num(certs)):
-        pycert = X509.__new__(X509)
-        # pycert._x509 = _lib.sk_X509_value(certs, i)
-        # According to comment from @ Jari Turkia
-        # to prevent segfaults use '_lib.X509_dup('
-        pycert._x509 = _lib.X509_dup(_lib.sk_X509_value(certs, i))
-        pycerts.append(pycert)
-    if not pycerts:
-        return None
-    return tuple(pycerts)
-
-
 def submit():
     """ Submit the supplied CSR to the associated ADCS CA. """
     log_env()
@@ -208,13 +188,13 @@ def fetch_roots():
         auth_method="ntlm",
     )
     pkcs7_bundle = ca_server.get_chain("b64")
-    pkcs7_data = crypto.load_pkcs7_data(crypto.FILETYPE_PEM, pkcs7_bundle)
-    pkcs7_certs = get_pkcs7_certificates(pkcs7_data)
+    pkcs7_certs = pkcs7.load_pem_pkcs7_certificates(pkcs7_bundle)
 
     for i in reversed(range(len(pkcs7_certs))):
-        pemcert = crypto.dump_certificate(crypto.FILETYPE_PEM, pkcs7_certs[i])
-        x509cert = crypto.load_certificate(crypto.FILETYPE_PEM, pemcert)
-        print(x509cert.get_subject().CN.lower())
+        subject = pkcs7_certs[i].subject
+        CN = subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        pemcert = pkcs7_certs[i].public_bytes(Encoding.PEM)
+        print(CN.lower())
         print(pemcert.decode())
 
 
